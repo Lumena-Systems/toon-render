@@ -269,9 +269,9 @@ describe("catalog.prompt", () => {
       actions: {},
     });
     const prompt = catalog.prompt({ mode: "chat" });
-    expect(prompt).toContain("```spec");
+    expect(prompt).toContain("```toon");
     expect(prompt).toContain("conversationally");
-    expect(prompt).toContain("text + JSONL");
+    expect(prompt).toContain("text + TOON");
   });
 
   it("generates generate mode prompt by default", () => {
@@ -286,7 +286,7 @@ describe("catalog.prompt", () => {
       actions: {},
     });
     const prompt = catalog.prompt();
-    expect(prompt).toContain("Output ONLY JSONL patches");
+    expect(prompt).toContain("Output ONLY TOON format");
     expect(prompt).not.toContain("conversationally");
   });
 
@@ -307,8 +307,9 @@ describe("catalog.prompt", () => {
       actions: {},
     });
     const prompt = catalog.prompt();
-    expect(prompt).toContain('"type":"MyBox"');
-    expect(prompt).toContain('"type":"MyLabel"');
+    // In TOON format, types appear as "type: MyBox" not JSON
+    expect(prompt).toContain("type: MyBox");
+    expect(prompt).toContain("type: MyLabel");
   });
 
   it("does not include hardcoded component names not in catalog", () => {
@@ -323,9 +324,13 @@ describe("catalog.prompt", () => {
       actions: {},
     });
     const prompt = catalog.prompt();
+    // In TOON format, check that hardcoded component types don't appear in the example output
+    // The component listing section will contain component names, so we check specifically
+    // for the example section where types are used
     const hardcoded = ["Stack", "Grid", "Heading", "Column", "Pressable"];
     for (const comp of hardcoded) {
-      expect(prompt).not.toContain(`"type":"${comp}"`);
+      // Should not appear as an element type in the TOON example
+      expect(prompt).not.toContain(`type: ${comp}\n`);
     }
   });
 
@@ -346,10 +351,11 @@ describe("catalog.prompt", () => {
       actions: {},
     });
     const prompt = catalog.prompt();
-    expect(prompt).toContain('"title":"example"');
-    expect(prompt).toContain('"count":0');
-    expect(prompt).toContain('"active":true');
-    expect(prompt).toContain('"variant":"primary"');
+    // In TOON format, props appear as "key: value" not JSON
+    expect(prompt).toContain("title: example");
+    expect(prompt).toContain("count: 0");
+    expect(prompt).toContain("active: true");
+    expect(prompt).toContain("variant: primary");
   });
 
   it("uses explicit example over Zod-generated values", () => {
@@ -368,8 +374,9 @@ describe("catalog.prompt", () => {
       actions: {},
     });
     const prompt = catalog.prompt();
-    expect(prompt).toContain('"text":"Welcome"');
-    expect(prompt).toContain('"level":"h1"');
+    // In TOON format, example props appear as "key: value"
+    expect(prompt).toContain("text: Welcome");
+    expect(prompt).toContain("level: h1");
   });
 
   it("uses custom promptTemplate when schema has one", () => {
@@ -438,7 +445,7 @@ describe("catalog.prompt", () => {
     const prompt = catalog.prompt();
     expect(prompt).toContain("INITIAL STATE:");
     expect(prompt).toContain("DYNAMIC LISTS (repeat field):");
-    expect(prompt).toContain("EVENTS (the `on` field):");
+    expect(prompt).toContain("EVENTS (the on field):");
     expect(prompt).toContain("VISIBILITY CONDITIONS:");
     expect(prompt).toContain("DYNAMIC PROPS:");
     expect(prompt).toContain("RULES:");

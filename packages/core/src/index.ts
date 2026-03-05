@@ -23,6 +23,7 @@ export type {
   // SpecStream types
   SpecStreamLine,
   SpecStreamCompiler,
+  SpecStreamCompilerOptions,
   // Mixed stream types (chat + GenUI)
   MixedStreamCallbacks,
   MixedStreamParser,
