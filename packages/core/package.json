@@ -50,6 +50,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@toon-format/toon": "^2.1.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
