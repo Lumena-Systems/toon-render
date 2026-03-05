@@ -6,6 +6,7 @@ import {
   buildUserPrompt,
   createStateStore,
   createSpecStreamCompiler,
+  createToonStreamCompiler,
   type Spec,
   type StateStore,
 } from "@json-render/core";
@@ -71,7 +72,8 @@ async function generateSpec(): Promise<Spec> {
     temperature: 0,
   });
 
-  const compiler = createSpecStreamCompiler<Spec>();
+  // Use TOON stream compiler since the prompt now instructs TOON output
+  const compiler = createToonStreamCompiler<Spec>();
 
   for await (const chunk of result.textStream) {
     compiler.push(chunk);

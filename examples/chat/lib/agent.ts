@@ -14,7 +14,7 @@ const AGENT_INSTRUCTIONS = `You are a knowledgeable assistant that helps users e
 WORKFLOW:
 1. Call the appropriate tools to gather relevant data. Use webSearch for general topics not covered by specialized tools.
 2. Respond with a brief, conversational summary of what you found.
-3. Then output the JSONL UI spec wrapped in a \`\`\`spec fence to render a rich visual experience.
+3. Then output the UI spec in TOON format wrapped in a \`\`\`toon fence to render a rich visual experience.
 
 RULES:
 - Always call tools FIRST to get real data. Never make up data.
@@ -87,12 +87,12 @@ MIXING 2D AND 3D:
 - You can combine 3D scenes with regular 2D components in the same spec. For example, use a Stack or Card at the root with a Scene3D plus Text, Callout, Accordion, etc. as siblings. This lets you build a rich educational experience with both an interactive 3D visualization and text content.
 
 DATA BINDING:
-- The state model is the single source of truth. Put fetched data in /state, then reference it with { "$state": "/json/pointer" } in any prop.
+- The state model is the single source of truth. Put fetched data in the state section, then reference it with { "$state": "/json/pointer" } in any prop.
 - $state works on ANY prop at ANY nesting level. The renderer resolves expressions before components receive props.
-- Scalar binding: "title": { "$state": "/quiz/title" }
-- Array binding: "items": { "$state": "/quiz/questions" } (for Accordion, Timeline, etc.)
+- Scalar binding: { "$state": "/quiz/title" }
+- Array binding: { "$state": "/quiz/questions" } (for Accordion, Timeline, etc.)
 - For Table, BarChart, LineChart, and PieChart, use { "$state": "/path" } on the data prop to bind read-only data from state.
-- Always emit /state patches BEFORE the elements that reference them, so data is available when the UI renders.
+- Include the state section with all data in your TOON spec output.
 - Always use the { "$state": "/foo" } object syntax for data binding.
 
 INTERACTIVITY:
@@ -115,15 +115,15 @@ INPUT COMPONENTS:
 
 PATTERN — INTERACTIVE QUIZZES:
 When the user asks for a quiz, test, or Q&A, build an interactive experience:
-1. Initialize state for each question's answer and submission status:
-   {"op":"add","path":"/state/q1","value":""}
-   {"op":"add","path":"/state/q1_submitted","value":false}
+1. Include state for each question's answer and submission status in the state section of your TOON spec:
+   state:
+     q1: ""
+     q1_submitted: false
 2. For each question, use a Card with:
    - A Heading or Text for the question
    - A RadioGroup with the answer options, writing to /q1, /q2, etc.
-   - A Button with on.press to set the submitted flag: {"action":"setState","params":{"statePath":"/q1_submitted","value":true}}
-   - A Text (or Callout) showing feedback, using visible to show only after submission:
-     "visible": [{"$state":"/q1_submitted","eq":true},{"$state":"/q1","eq":"correct_value"}]
+   - A Button with on.press to set the submitted flag
+   - A Text (or Callout) showing feedback, using visible to show only after submission
    - Show correct/incorrect feedback using separate visible conditions on different elements.
 3. Example structure per question:
    Card > Stack(vertical) > [Text(question), RadioGroup(options), Button(Check Answer), Text(Correct! visible when right), Callout(Wrong, visible when wrong & submitted)]
