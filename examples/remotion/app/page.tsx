@@ -190,7 +190,9 @@ export default function Home() {
       if (!reader) throw new Error("No response body");
 
       const decoder = new TextDecoder();
-      const compiler = createSpecStreamCompiler<TimelineSpec>();
+      const compiler = createSpecStreamCompiler<TimelineSpec>({
+        format: "toon",
+      });
 
       while (true) {
         const { done, value } = await reader.read();

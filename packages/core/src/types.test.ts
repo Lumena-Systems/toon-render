@@ -1164,4 +1164,108 @@ describe("createMixedStreamParser - fence mode", () => {
     expect(patches.length).toBe(1);
     expect(texts.length).toBe(0);
   });
+
+  it("handles ```toon fences and decodes TOON to patches", () => {
+    const patches: SpecStreamLine[] = [];
+    const texts: string[] = [];
+    const parser = createMixedStreamParser({
+      onPatch: (p) => patches.push(p),
+      onText: (t) => texts.push(t),
+    });
+
+    parser.push("Here is your UI:\n");
+    parser.push("```toon\n");
+    parser.push("root: main\n");
+    parser.push("elements:\n");
+    parser.push("  main:\n");
+    parser.push("    type: Card\n");
+    parser.push("    props:\n");
+    parser.push("      title: Hello\n");
+    parser.push("    children[0]:\n");
+    parser.push("```\n");
+    parser.push("Done!\n");
+    parser.flush();
+
+    // Should have patches from TOON decode
+    expect(patches.length).toBeGreaterThan(0);
+    // Should have root patch
+    const rootPatch = patches.find((p) => p.path === "/root");
+    expect(rootPatch).toBeDefined();
+    expect(rootPatch!.value).toBe("main");
+    // Should have element patch
+    const elementPatch = patches.find((p) => p.path === "/elements/main");
+    expect(elementPatch).toBeDefined();
+    // Text should be preserved
+    expect(texts.some((t) => t.includes("Here is your UI:"))).toBe(true);
+    expect(texts.some((t) => t.includes("Done!"))).toBe(true);
+  });
+
+  it("handles ```toon fence at end of stream without closing", () => {
+    const patches: SpecStreamLine[] = [];
+    const texts: string[] = [];
+    const parser = createMixedStreamParser({
+      onPatch: (p) => patches.push(p),
+      onText: (t) => texts.push(t),
+    });
+
+    parser.push("```toon\n");
+    parser.push("root: main\n");
+    parser.push("elements:\n");
+    parser.push("  main:\n");
+    parser.push("    type: Text\n");
+    parser.push("    props:\n");
+    parser.push("      content: Hello\n");
+    parser.push("    children[0]:\n");
+    parser.flush();
+
+    expect(patches.length).toBeGreaterThan(0);
+    const rootPatch = patches.find((p) => p.path === "/root");
+    expect(rootPatch).toBeDefined();
+    expect(rootPatch!.value).toBe("main");
+  });
+});
+
+// =============================================================================
+// createSpecStreamCompiler with format: "toon"
+// =============================================================================
+
+describe("createSpecStreamCompiler (TOON mode)", () => {
+  it("compiles TOON format input to a spec", () => {
+    const compiler = createSpecStreamCompiler<Spec>({ format: "toon" });
+
+    compiler.push("root: main\n");
+    compiler.push("elements:\n");
+    compiler.push("  main:\n");
+    compiler.push("    type: Card\n");
+    compiler.push("    props:\n");
+    compiler.push("      title: Hello\n");
+    compiler.push("    children[0]:\n");
+
+    const result = compiler.getResult();
+    expect(result.root).toBe("main");
+    expect(result.elements).toBeDefined();
+    expect(
+      (result.elements as Record<string, { type: string }>).main.type,
+    ).toBe("Card");
+  });
+
+  it("handles initial values", () => {
+    const compiler = createSpecStreamCompiler<Spec>({
+      initial: { root: "default", elements: {} },
+      format: "toon",
+    });
+
+    expect(compiler.getResult().root).toBe("default");
+
+    compiler.push("root: updated\n");
+    const result = compiler.getResult();
+    expect(result.root).toBe("updated");
+  });
+
+  it("default format is jsonl for backward compatibility", () => {
+    const compiler = createSpecStreamCompiler<Spec>();
+    compiler.push('{"op":"add","path":"/root","value":"main"}\n');
+    const result = compiler.getResult();
+    expect(result.root).toBe("main");
+  });
 });

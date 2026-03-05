@@ -2,9 +2,10 @@
   "name": "@json-render/core",
   "version": "0.11.0",
   "license": "Apache-2.0",
-  "description": "JSON becomes real things. Define your catalog, register your components, let AI generate.",
+  "description": "Generative UI framework with TOON format for 30-60% fewer tokens. Define your catalog, register your components, let AI generate.",
   "keywords": [
     "json",
+    "toon",
     "ui",
     "react",
     "ai",
@@ -12,7 +13,8 @@
     "llm",
     "schema",
     "zod",
-    "streaming"
+    "streaming",
+    "token-efficient"
   ],
   "repository": {
     "type": "git",
@@ -50,6 +52,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@toon-format/toon": "^2.1.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

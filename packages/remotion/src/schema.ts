@@ -3,7 +3,7 @@ import { defineSchema, type PromptContext } from "@json-render/core";
 /**
  * Prompt template for Remotion timeline generation
  *
- * Uses JSONL patch format (same as React) but builds up a timeline spec structure.
+ * Uses TOON format (Token-Oriented Object Notation) to build timeline specs with fewer tokens.
  */
 function remotionPromptTemplate(context: PromptContext): string {
   const { catalog, options } = context;
@@ -14,23 +14,70 @@ function remotionPromptTemplate(context: PromptContext): string {
   lines.push(system);
   lines.push("");
 
-  // Output format - JSONL patches
-  lines.push("OUTPUT FORMAT:");
+  // Output format - TOON
+  lines.push("OUTPUT FORMAT (TOON):");
   lines.push(
-    "Output JSONL (one JSON object per line) with patches to build a timeline spec.",
-  );
-  lines.push(
-    "Each line is a JSON patch operation. Build the timeline incrementally.",
+    "Output the timeline spec in TOON format (Token-Oriented Object Notation). TOON is a compact, indentation-based format that uses key: value pairs with 2-space indentation for nesting.",
   );
   lines.push("");
-  lines.push("Example output (each line is a separate JSON object):");
+  lines.push("Example output:");
   lines.push("");
-  lines.push(`{"op":"add","path":"/composition","value":{"id":"intro","fps":30,"width":1920,"height":1080,"durationInFrames":300}}
-{"op":"add","path":"/tracks","value":[{"id":"main","name":"Main","type":"video","enabled":true},{"id":"overlay","name":"Overlay","type":"overlay","enabled":true}]}
-{"op":"add","path":"/clips","value":[]}
-{"op":"add","path":"/clips/-","value":{"id":"clip-1","trackId":"main","component":"TitleCard","props":{"title":"Welcome","subtitle":"Getting Started"},"from":0,"durationInFrames":90,"transitionIn":{"type":"fade","durationInFrames":15},"transitionOut":{"type":"fade","durationInFrames":15},"motion":{"enter":{"opacity":0,"y":50,"scale":0.9,"duration":25},"spring":{"damping":15}}}}
-{"op":"add","path":"/clips/-","value":{"id":"clip-2","trackId":"main","component":"TitleCard","props":{"title":"Features"},"from":90,"durationInFrames":90,"motion":{"enter":{"opacity":0,"x":-100,"duration":20},"exit":{"opacity":0,"x":100,"duration":15}}}}
-{"op":"add","path":"/audio","value":{"tracks":[]}}`);
+  lines.push(`composition:
+  id: intro
+  fps: 30
+  width: 1920
+  height: 1080
+  durationInFrames: 300
+tracks[2]:
+  - id: main
+    name: Main
+    type: video
+    enabled: true
+  - id: overlay
+    name: Overlay
+    type: overlay
+    enabled: true
+clips[2]:
+  - id: clip-1
+    trackId: main
+    component: TitleCard
+    props:
+      title: Welcome
+      subtitle: Getting Started
+    from: 0
+    durationInFrames: 90
+    transitionIn:
+      type: fade
+      durationInFrames: 15
+    transitionOut:
+      type: fade
+      durationInFrames: 15
+    motion:
+      enter:
+        opacity: 0
+        "y": 50
+        scale: 0.9
+        duration: 25
+      spring:
+        damping: 15
+  - id: clip-2
+    trackId: main
+    component: TitleCard
+    props:
+      title: Features
+    from: 90
+    durationInFrames: 90
+    motion:
+      enter:
+        opacity: 0
+        x: -100
+        duration: 20
+      exit:
+        opacity: 0
+        x: 100
+        duration: 15
+audio:
+  tracks[0]:`);
   lines.push("");
 
   // Components
@@ -91,27 +138,37 @@ function remotionPromptTemplate(context: PromptContext): string {
     '- loop: {property, from, to, duration, easing?} - continuous animation (property: "scale"|"rotate"|"x"|"y"|"opacity")',
   );
   lines.push("");
-  lines.push("Example motion configs:");
-  lines.push('  Fade up: {"enter":{"opacity":0,"y":30,"duration":20}}');
-  lines.push(
-    '  Scale pop: {"enter":{"scale":0.5,"opacity":0,"duration":15},"spring":{"damping":10}}',
-  );
-  lines.push(
-    '  Slide in/out: {"enter":{"x":-100,"duration":20},"exit":{"x":100,"duration":15}}',
-  );
-  lines.push(
-    '  Gentle pulse: {"loop":{"property":"scale","from":1,"to":1.05,"duration":60,"easing":"ease"}}',
-  );
+  lines.push("Example motion configs in TOON:");
+  lines.push("  Fade up:");
+  lines.push("    motion:");
+  lines.push("      enter:");
+  lines.push("        opacity: 0");
+  lines.push('        "y": 30');
+  lines.push("        duration: 20");
+  lines.push("  Scale pop:");
+  lines.push("    motion:");
+  lines.push("      enter:");
+  lines.push("        scale: 0.5");
+  lines.push("        opacity: 0");
+  lines.push("        duration: 15");
+  lines.push("      spring:");
+  lines.push("        damping: 10");
+  lines.push("  Slide in/out:");
+  lines.push("    motion:");
+  lines.push("      enter:");
+  lines.push("        x: -100");
+  lines.push("        duration: 20");
+  lines.push("      exit:");
+  lines.push("        x: 100");
+  lines.push("        duration: 15");
   lines.push("");
 
   // Rules
   lines.push("RULES:");
   const baseRules = [
-    "Output ONLY JSONL patches - one JSON object per line, no markdown, no code fences",
-    'First add /composition with {id, fps:30, width:1920, height:1080, durationInFrames}: {"op":"add","path":"/composition","value":{...}}',
-    'Then add /tracks array with video/overlay tracks: {"op":"add","path":"/tracks","value":[...]}',
-    'Then add each clip by appending to the array: {"op":"add","path":"/clips/-","value":{...}}',
-    'Finally add /audio with {tracks:[]}: {"op":"add","path":"/audio","value":{...}}',
+    "Output ONLY TOON format - no markdown, no code fences, no JSON",
+    "The spec must have composition, tracks, clips, and audio as top-level fields",
+    "Use 2-space indentation consistently. No trailing spaces.",
     "ONLY use components listed above",
     "fps is always 30 (1 second = 30 frames, 10 seconds = 300 frames)",
     'Clips on "main" track flow sequentially (from = previous clip\'s from + durationInFrames)',

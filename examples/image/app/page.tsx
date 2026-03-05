@@ -171,9 +171,10 @@ export default function Page() {
       if (!reader) throw new Error("No response body");
 
       const decoder = new TextDecoder();
-      const compiler = createSpecStreamCompiler<Spec>(
-        startingSpec ? { ...startingSpec } : {},
-      );
+      const compiler = createSpecStreamCompiler<Spec>({
+        initial: startingSpec ? { ...startingSpec } : {},
+        format: "toon",
+      });
 
       while (true) {
         const { done, value } = await reader.read();

@@ -26,7 +26,8 @@ npm install @json-render/core @json-render/vue
 json-render is a **Generative UI** framework: AI generates interfaces from natural language prompts, constrained to components you define. You set the guardrails, AI generates within them:
 
 - **Guardrailed** - AI can only use components in your catalog
-- **Predictable** - JSON output matches your schema, every time
+- **Predictable** - Output matches your schema, every time
+- **Token-Efficient** - Uses TOON format for 30-60% fewer tokens than JSON
 - **Fast** - Stream and render progressively as the model responds
 - **Cross-Platform** - React, Vue (web), React Native (mobile) from the same catalog
 - **Batteries Included** - 36 pre-built shadcn/ui components ready to use
@@ -105,7 +106,7 @@ function Dashboard({ spec }) {
 }
 ```
 
-**That's it.** AI generates JSON, you render it safely.
+**That's it.** AI generates TOON (a compact, token-efficient format), the framework decodes it, and you render it safely.
 
 ---
 
@@ -358,15 +359,16 @@ const svg = await renderToSvg(spec, { fonts });
 
 ### Streaming (SpecStream)
 
-Stream AI responses progressively:
+Stream AI responses progressively. Supports both TOON format (default for new prompts) and legacy JSONL:
 
 ```typescript
 import { createSpecStreamCompiler } from "@json-render/core";
 
-const compiler = createSpecStreamCompiler<MySpec>();
+// TOON mode (compact, token-efficient format)
+const compiler = createSpecStreamCompiler<MySpec>({ format: "toon" });
 
 // Process chunks as they arrive
-const { result, newPatches } = compiler.push(chunk);
+const { result } = compiler.push(chunk);
 setSpec(result); // Update UI with partial result
 
 // Get final result
@@ -471,17 +473,17 @@ pnpm dev
 ```mermaid
 flowchart LR
     A[User Prompt] --> B[AI + Catalog]
-    B --> C[JSON Spec]
+    B --> C[TOON Spec]
     C --> D[Renderer]
     
     B -.- E([guardrailed])
-    C -.- F([predictable])
+    C -.- F([token-efficient])
     D -.- G([streamed])
 ```
 
 1. **Define the guardrails** - what components, actions, and data bindings AI can use
 2. **Prompt** - describe what you want in natural language
-3. **AI generates JSON** - output is always predictable, constrained to your catalog
+3. **AI generates TOON** - compact, token-efficient output constrained to your catalog (30-60% fewer tokens than JSON)
 4. **Render fast** - stream and render progressively as the model responds
 
 ## License

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { decode as decodeToon } from "@toon-format/toon";
 import type { ActionBinding } from "./actions";
 
 /**
@@ -792,13 +793,32 @@ export interface SpecStreamCompiler<T> {
 }
 
 /**
+ * Options for creating a SpecStream compiler.
+ */
+export interface SpecStreamCompilerOptions<T> {
+  /** Initial value */
+  initial?: Partial<T>;
+  /**
+   * Input format.
+   * - `"jsonl"` (default): JSONL patch format (one JSON patch per line)
+   * - `"toon"`: TOON format (Token-Oriented Object Notation)
+   */
+  format?: "jsonl" | "toon";
+}
+
+/**
  * Create a streaming SpecStream compiler.
  *
- * SpecStream is json-render's streaming format. AI outputs patch operations
- * line by line, and this compiler progressively builds the final spec.
+ * Supports two input formats:
+ * - `"jsonl"` (default): AI outputs JSON patch operations line by line
+ * - `"toon"`: AI outputs TOON format, decoded incrementally
  *
  * @example
+ * // JSONL mode (default)
  * const compiler = createSpecStreamCompiler<TimelineSpec>();
+ *
+ * // TOON mode
+ * const compiler = createSpecStreamCompiler<Spec>({ format: "toon" });
  *
  * // Process streaming response
  * const reader = response.body.getReader();
@@ -813,7 +833,37 @@ export interface SpecStreamCompiler<T> {
  * }
  */
 export function createSpecStreamCompiler<T = Record<string, unknown>>(
-  initial: Partial<T> = {},
+  initialOrOptions?: Partial<T> | SpecStreamCompilerOptions<T>,
+): SpecStreamCompiler<T> {
+  // Handle both old signature (initial) and new signature (options)
+  let initial: Partial<T>;
+  let format: "jsonl" | "toon";
+
+  if (
+    initialOrOptions &&
+    typeof initialOrOptions === "object" &&
+    ("format" in initialOrOptions || "initial" in initialOrOptions)
+  ) {
+    const opts = initialOrOptions as SpecStreamCompilerOptions<T>;
+    initial = opts.initial ?? ({} as Partial<T>);
+    format = opts.format ?? "jsonl";
+  } else {
+    initial = (initialOrOptions ?? {}) as Partial<T>;
+    format = "jsonl";
+  }
+
+  if (format === "toon") {
+    return createToonModeCompiler<T>(initial);
+  }
+
+  return createJsonlModeCompiler<T>(initial);
+}
+
+/**
+ * JSONL-mode compiler (original behavior).
+ */
+function createJsonlModeCompiler<T>(
+  initial: Partial<T>,
 ): SpecStreamCompiler<T> {
   let result = { ...initial } as T;
   let buffer = "";
@@ -878,6 +928,68 @@ export function createSpecStreamCompiler<T = Record<string, unknown>>(
   };
 }
 
+/**
+ * TOON-mode compiler. Buffers TOON text and attempts incremental decode.
+ */
+function createToonModeCompiler<T>(initial: Partial<T>): SpecStreamCompiler<T> {
+  let result = { ...initial } as T;
+  let buffer = "";
+  let lastSuccessfulDecode = "";
+  const appliedPatches: SpecStreamLine[] = [];
+
+  function tryDecode(text: string): boolean {
+    if (text === lastSuccessfulDecode) return false;
+    try {
+      const decoded = decodeToon(text) as unknown as T;
+      result = { ...initial, ...decoded } as T;
+      lastSuccessfulDecode = text;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  return {
+    push(chunk: string): { result: T; newPatches: SpecStreamLine[] } {
+      buffer += chunk;
+
+      // Only attempt decode when we have complete lines
+      const lastNewline = buffer.lastIndexOf("\n");
+      if (lastNewline === -1) {
+        return { result, newPatches: [] };
+      }
+
+      const toDecode = buffer.slice(0, lastNewline + 1);
+      if (tryDecode(toDecode)) {
+        // Generate synthetic patches for compatibility
+        const newPatches: SpecStreamLine[] = [];
+        result = { ...result };
+        return { result, newPatches };
+      }
+
+      return { result, newPatches: [] };
+    },
+
+    getResult(): T {
+      if (buffer.trim()) {
+        tryDecode(buffer);
+      }
+      return result;
+    },
+
+    getPatches(): SpecStreamLine[] {
+      return [...appliedPatches];
+    },
+
+    reset(newInitial: Partial<T> = {}): void {
+      result = { ...newInitial } as T;
+      buffer = "";
+      lastSuccessfulDecode = "";
+      appliedPatches.length = 0;
+    },
+  };
+}
+
 // =============================================================================
 // Mixed Stream Parser — for chat + GenUI (text interleaved with JSONL patches)
 // =============================================================================
@@ -929,12 +1041,67 @@ export function createMixedStreamParser(
 ): MixedStreamParser {
   let buffer = "";
   let inSpecFence = false;
+  let inToonFence = false;
+  let toonBuffer = "";
+
+  function flushToonBuffer(): void {
+    if (toonBuffer.trim()) {
+      try {
+        const decoded = decodeToon(toonBuffer) as unknown as Record<
+          string,
+          unknown
+        >;
+        // Convert decoded TOON spec into patches
+        if (decoded.root) {
+          callbacks.onPatch({ op: "add", path: "/root", value: decoded.root });
+        }
+        if (decoded.elements && typeof decoded.elements === "object") {
+          for (const [key, value] of Object.entries(
+            decoded.elements as Record<string, unknown>,
+          )) {
+            callbacks.onPatch({
+              op: "add",
+              path: `/elements/${key}`,
+              value,
+            });
+          }
+        }
+        if (decoded.state && typeof decoded.state === "object") {
+          for (const [key, value] of Object.entries(
+            decoded.state as Record<string, unknown>,
+          )) {
+            callbacks.onPatch({ op: "add", path: `/state/${key}`, value });
+          }
+        }
+      } catch {
+        // If TOON decode fails, forward as text
+        callbacks.onText(toonBuffer);
+      }
+    }
+    toonBuffer = "";
+  }
 
   function processLine(line: string): void {
     const trimmed = line.trim();
 
-    // Fence detection
-    if (!inSpecFence && trimmed.startsWith("```spec")) {
+    // Fence detection - TOON fences
+    if (!inSpecFence && !inToonFence && trimmed.startsWith("```toon")) {
+      inToonFence = true;
+      toonBuffer = "";
+      return;
+    }
+    if (inToonFence && trimmed === "```") {
+      inToonFence = false;
+      flushToonBuffer();
+      return;
+    }
+    if (inToonFence) {
+      toonBuffer += line + "\n";
+      return;
+    }
+
+    // Fence detection - spec fences (backward compat)
+    if (!inSpecFence && !inToonFence && trimmed.startsWith("```spec")) {
       inSpecFence = true;
       return;
     }
@@ -980,6 +1147,12 @@ export function createMixedStreamParser(
         processLine(buffer);
       }
       buffer = "";
+
+      // If still inside a TOON fence, flush what we have
+      if (inToonFence) {
+        flushToonBuffer();
+        inToonFence = false;
+      }
     },
   };
 }
@@ -1001,9 +1174,11 @@ export type StreamChunk =
   | { type: "text-end"; id: string; [k: string]: unknown }
   | { type: string; [k: string]: unknown };
 
-/** The opening fence for a spec block (e.g. ` ```spec `). */
+/** The opening fence for a spec block (e.g. ` ```spec ` or ` ```toon `). */
 const SPEC_FENCE_OPEN = "```spec";
-/** The closing fence for a spec block. */
+/** The opening fence for a TOON block. */
+const TOON_FENCE_OPEN = "```toon";
+/** The closing fence for a spec/toon block. */
 const SPEC_FENCE_CLOSE = "```";
 
 /**
@@ -1044,8 +1219,12 @@ export function createJsonRenderTransform(): TransformStream<
   let currentTextId = "";
   // Whether the current incomplete line might be JSONL (starts with '{')
   let buffering = false;
-  // Whether we are inside a ```spec fence
+  // Whether we are inside a ```spec fence (JSONL mode)
   let inSpecFence = false;
+  // Whether we are inside a ```toon fence (TOON mode)
+  let inToonFence = false;
+  // Buffer for accumulating TOON lines inside a fence
+  let toonBuffer = "";
   // Whether we are currently inside a text block (between text-start/text-end).
   // Used to split text blocks around spec data so the AI SDK creates separate
   // text parts, preserving interleaving of prose and UI in message.parts.
@@ -1094,6 +1273,37 @@ export function createJsonRenderTransform(): TransformStream<
     });
   }
 
+  /** Flush the accumulated TOON buffer, decode it, and emit as a flat spec. */
+  function flushToonFenceBuffer(
+    controller: TransformStreamDefaultController<StreamChunk>,
+  ) {
+    if (!toonBuffer.trim()) return;
+    try {
+      const decoded = decodeToon(toonBuffer) as unknown as Record<
+        string,
+        unknown
+      >;
+      closeTextBlock(controller);
+      controller.enqueue({
+        type: SPEC_DATA_PART_TYPE,
+        data: {
+          type: "flat",
+          spec: {
+            root: (decoded.root as string) || "",
+            elements: (decoded.elements as Record<string, unknown>) || {},
+            ...(decoded.state
+              ? { state: decoded.state as Record<string, unknown> }
+              : {}),
+          },
+        },
+      });
+    } catch {
+      // If TOON decode fails, emit lines as text
+      emitTextDelta(toonBuffer, controller);
+    }
+    toonBuffer = "";
+  }
+
   function flushBuffer(
     controller: TransformStreamDefaultController<StreamChunk>,
   ) {
@@ -1101,7 +1311,15 @@ export function createJsonRenderTransform(): TransformStream<
 
     const trimmed = lineBuffer.trim();
 
-    // Inside a fence, everything is spec data
+    // Inside a TOON fence, accumulate into toonBuffer
+    if (inToonFence) {
+      toonBuffer += lineBuffer + "\n";
+      lineBuffer = "";
+      buffering = false;
+      return;
+    }
+
+    // Inside a spec fence, everything is spec data
     if (inSpecFence) {
       if (trimmed) {
         const patch = parseSpecStreamLine(trimmed);
@@ -1135,8 +1353,24 @@ export function createJsonRenderTransform(): TransformStream<
   ) {
     const trimmed = line.trim();
 
-    // --- Fence detection ---
-    if (!inSpecFence && trimmed.startsWith(SPEC_FENCE_OPEN)) {
+    // --- Fence detection: TOON fences ---
+    if (!inSpecFence && !inToonFence && trimmed.startsWith(TOON_FENCE_OPEN)) {
+      inToonFence = true;
+      toonBuffer = "";
+      return; // Swallow the opening fence
+    }
+    if (inToonFence && trimmed === SPEC_FENCE_CLOSE) {
+      inToonFence = false;
+      flushToonFenceBuffer(controller);
+      return; // Swallow the closing fence
+    }
+    if (inToonFence) {
+      toonBuffer += line + "\n";
+      return;
+    }
+
+    // --- Fence detection: spec fences (backward compat) ---
+    if (!inSpecFence && !inToonFence && trimmed.startsWith(SPEC_FENCE_OPEN)) {
       inSpecFence = true;
       return; // Swallow the opening fence
     }
@@ -1145,7 +1379,7 @@ export function createJsonRenderTransform(): TransformStream<
       return; // Swallow the closing fence
     }
 
-    // Inside a fence: parse as spec data
+    // Inside a spec fence: parse as spec data
     if (inSpecFence) {
       if (trimmed) {
         const patch = parseSpecStreamLine(trimmed);
@@ -1239,6 +1473,11 @@ export function createJsonRenderTransform(): TransformStream<
 
     flush(controller) {
       flushBuffer(controller);
+      // If we're still inside a TOON fence, decode what we have
+      if (inToonFence) {
+        flushToonFenceBuffer(controller);
+        inToonFence = false;
+      }
       closeTextBlock(controller);
     },
   });
