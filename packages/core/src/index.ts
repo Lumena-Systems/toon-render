@@ -177,3 +177,20 @@ export { defineCatalog } from "./schema";
 export type { UserPromptOptions } from "./prompt";
 
 export { buildUserPrompt } from "./prompt";
+
+// TOON (Token-Oriented Object Notation) utilities
+export type {
+  ToonStreamCompiler,
+  ToonMixedStreamCallbacks,
+  ToonMixedStreamParser,
+} from "./toon";
+
+export {
+  encodeSpecToToon,
+  decodeSpecFromToon,
+  encodePatchesToToon,
+  encodeStateToToon,
+  createToonStreamCompiler,
+  createToonMixedStreamParser,
+  specToPatches,
+} from "./toon";
