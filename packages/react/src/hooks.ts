@@ -16,6 +16,7 @@ import {
   createMixedStreamParser,
   applySpecPatch,
   nestedToFlat,
+  decodeSpecFromToon,
   SPEC_DATA_PART_TYPE,
 } from "@json-render/core";
 
@@ -316,6 +317,11 @@ export function useUIStream({
 
         const decoder = new TextDecoder();
         let buffer = "";
+        // Auto-detect format: null = unknown, 'jsonl' or 'toon'
+        let detectedFormat: "jsonl" | "toon" | null = null;
+        // For TOON mode, accumulate the full text and attempt incremental decode
+        let toonAccumulated = "";
+        let lastToonDecode = "";
 
         while (true) {
           const { done, value } = await reader.read();
@@ -330,14 +336,50 @@ export function useUIStream({
           for (const line of lines) {
             const trimmed = line.trim();
             if (!trimmed) continue;
-            const result = parseLine(trimmed);
-            if (!result) continue;
-            if (result.type === "usage") {
-              setUsage(result.usage);
+
+            // Auto-detect format on first non-empty line
+            if (detectedFormat === null) {
+              detectedFormat = trimmed.startsWith("{") ? "jsonl" : "toon";
+            }
+
+            if (detectedFormat === "jsonl") {
+              const result = parseLine(trimmed);
+              if (!result) continue;
+              if (result.type === "usage") {
+                setUsage(result.usage);
+              } else {
+                setRawLines((prev) => [...prev, trimmed]);
+                currentSpec = applyPatch(currentSpec, result.patch);
+                setSpec({ ...currentSpec });
+              }
             } else {
-              setRawLines((prev) => [...prev, trimmed]);
-              currentSpec = applyPatch(currentSpec, result.patch);
-              setSpec({ ...currentSpec });
+              // TOON mode: accumulate lines and attempt incremental decode
+              toonAccumulated += line + "\n";
+              if (toonAccumulated !== lastToonDecode) {
+                try {
+                  const decoded = decodeSpecFromToon(toonAccumulated);
+                  if (
+                    decoded.root ||
+                    Object.keys(decoded.elements).length > 0
+                  ) {
+                    currentSpec = {
+                      ...currentSpec,
+                      ...decoded,
+                      elements: {
+                        ...currentSpec.elements,
+                        ...decoded.elements,
+                      },
+                      ...(decoded.state
+                        ? { state: { ...currentSpec.state, ...decoded.state } }
+                        : {}),
+                    };
+                    setSpec({ ...currentSpec });
+                    lastToonDecode = toonAccumulated;
+                  }
+                } catch {
+                  // Incomplete TOON, keep buffering
+                }
+              }
             }
           }
         }
@@ -345,14 +387,37 @@ export function useUIStream({
         // Process any remaining buffer
         if (buffer.trim()) {
           const trimmed = buffer.trim();
-          const result = parseLine(trimmed);
-          if (result) {
-            if (result.type === "usage") {
-              setUsage(result.usage);
-            } else {
-              setRawLines((prev) => [...prev, trimmed]);
-              currentSpec = applyPatch(currentSpec, result.patch);
-              setSpec({ ...currentSpec });
+          if (
+            detectedFormat === "toon" ||
+            (detectedFormat === null && !trimmed.startsWith("{"))
+          ) {
+            toonAccumulated += buffer + "\n";
+            try {
+              const decoded = decodeSpecFromToon(toonAccumulated);
+              if (decoded.root || Object.keys(decoded.elements).length > 0) {
+                currentSpec = {
+                  ...currentSpec,
+                  ...decoded,
+                  elements: { ...currentSpec.elements, ...decoded.elements },
+                  ...(decoded.state
+                    ? { state: { ...currentSpec.state, ...decoded.state } }
+                    : {}),
+                };
+                setSpec({ ...currentSpec });
+              }
+            } catch {
+              // Ignore decode errors on final flush
+            }
+          } else {
+            const result = parseLine(trimmed);
+            if (result) {
+              if (result.type === "usage") {
+                setUsage(result.usage);
+              } else {
+                setRawLines((prev) => [...prev, trimmed]);
+                currentSpec = applyPatch(currentSpec, result.patch);
+                setSpec({ ...currentSpec });
+              }
             }
           }
         }
