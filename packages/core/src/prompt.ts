@@ -1,4 +1,5 @@
 import type { Spec } from "./types";
+import { encodeSpecToToon, encodeStateToToon } from "./toon";
 
 /**
  * Options for building a user prompt.
@@ -28,14 +29,13 @@ function isNonEmptySpec(spec: unknown): spec is Spec {
   );
 }
 
-const PATCH_INSTRUCTIONS = `IMPORTANT: The current UI is already loaded. Output ONLY the patches needed to make the requested change:
-- To add a new element: {"op":"add","path":"/elements/new-key","value":{...}}
-- To modify an existing element: {"op":"replace","path":"/elements/existing-key","value":{...}}
-- To remove an element: {"op":"remove","path":"/elements/old-key"}
-- To update the root: {"op":"replace","path":"/root","value":"new-root-key"}
-- To add children: update the parent element with new children array
+const PATCH_INSTRUCTIONS = `IMPORTANT: The current UI is already loaded. Output the FULL updated spec in TOON format with ONLY the changes applied.
+- To add a new element: include it in the elements map
+- To modify an existing element: include the updated version
+- To remove an element: omit it from the output
+- You may output just the changed sections, or the full spec with changes applied.
 
-DO NOT output patches for elements that don't need to change. Only output what's necessary for the requested modification.`;
+Only include elements that are changing or being added. You may omit unchanged elements for brevity.`;
 
 /**
  * Build a user prompt for AI generation.
@@ -73,14 +73,14 @@ export function buildUserPrompt(options: UserPromptOptions): string {
     parts.push(
       `CURRENT UI STATE (already loaded, DO NOT recreate existing elements):`,
     );
-    parts.push(JSON.stringify(currentSpec, null, 2));
+    parts.push(encodeSpecToToon(currentSpec as Spec));
     parts.push("");
     parts.push(`USER REQUEST: ${userText}`);
 
     // Append state context if provided
     if (state && Object.keys(state).length > 0) {
       parts.push("");
-      parts.push(`AVAILABLE STATE:\n${JSON.stringify(state, null, 2)}`);
+      parts.push(`AVAILABLE STATE:\n${encodeStateToToon(state)}`);
     }
 
     parts.push("");
@@ -93,11 +93,11 @@ export function buildUserPrompt(options: UserPromptOptions): string {
   const parts: string[] = [userText];
 
   if (state && Object.keys(state).length > 0) {
-    parts.push(`\nAVAILABLE STATE:\n${JSON.stringify(state, null, 2)}`);
+    parts.push(`\nAVAILABLE STATE:\n${encodeStateToToon(state)}`);
   }
 
   parts.push(
-    `\nRemember: Output /root first, then interleave /elements and /state patches so the UI fills in progressively as it streams. Output each state patch right after the elements that use it, one per array item.`,
+    `\nRemember: Output the complete spec in TOON format with root, elements, and state sections. The UI renders progressively as the TOON streams in.`,
   );
 
   return parts.join("\n");
